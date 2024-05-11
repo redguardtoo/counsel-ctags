@@ -1,0 +1,268 @@
+* counsel-ctags (WIP)
+[[https://github.com/redguardtoo/counsel-ctags/actions/workflows/test.yml][https://github.com/redguardtoo/counsel-ctags/actions/workflows/test.yml/badge.svg]]
+[[http://melpa.org/#/counsel-ctags][file:http://melpa.org/packages/counsel-ctags-badge.svg]]
+[[http://stable.melpa.org/#/counsel-ctags][file:http://stable.melpa.org/packages/counsel-ctags-badge.svg]]
+
+Fast code navigation using Universal Ctags 
+
+It's been tested on Linux/Windows/macOS.
+
+[[file:demo.png]]
+* Table of Content                                                              :noexport:TOC:
+- [[#counsel-ctags-wip][counsel-ctags (WIP)]]
+- [[#install][Install]]
+- [[#usage][Usage]]
+- [[#tips-optional][Tips (OPTIONAL)]]
+  - [[#jump-back][Jump back]]
+  - [[#native-windows-emacs][Native Windows Emacs]]
+  - [[#gitignore-and-hgignore-are-respected][".gitignore" and ".hgignore" are respected]]
+  - [[#set-up-with-use-package][Set up with use-package]]
+  - [[#insert-extra-content-into-tags-file-after-its-updated][Insert extra content into tags file after it's updated]]
+  - [[#ignore-directories-and-files][Ignore directories and files]]
+  - [[#dependency-on-emacs-apis-is-minimum][Dependency on Emacs APIs is minimum]]
+  - [[#specify-multiple-tags-files][Specify multiple tags files]]
+  - [[#auto-update-tags-file][Auto update tags file]]
+  - [[#rust-programming-language][Rust programming language]]
+  - [[#list-all-tags][List all tags]]
+  - [[#two-step-tag-matching-using-regular-expression-and-filter][Two-step tag matching using regular expression and filter]]
+  - [[#force-update-current-tags-file][Force update current tags file]]
+  - [[#open-recent-tag][Open recent tag]]
+  - [[#search-with-exclusion-patterns][Search with exclusion patterns]]
+  - [[#grep-program][Grep program]]
+  - [[#customize-grep-keyword][Customize grep keyword]]
+  - [[#windows][Windows]]
+  - [[#use-ctags-to-generate-imenu-items][Use Ctags to generate Imenu items]]
+- [[#step-by-step-guide][Step by step guide]]
+  - [[#step-1-a-toy-c-project][Step 1, a toy C project]]
+  - [[#step-2-navigate-code][Step 2, navigate code]]
+- [[#bug-report][Bug Report]]
+
+* Install
+Please install =counsel-ctags= from [[https://melpa.org/#/counsel-ctags][MELPA]].
+
+If [[https://ctags.io/][Universal Ctags]] is installed, this program works out of box. Or else, customize =counsel-ctags-update-tags-backend= to create tags file with your own CLI. Please note  is not supported anymore.
+
+Please note,
+- Only Universal Ctags is supported
+- [[http://ctags.sourceforge.net/][Exuberant Ctags]]  and [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Create-Tags-Table.html#Create-Tags-Table][etags]] are NOT supported.
+
+* Usage
+Run =M-x counsel-ctags-find-tag-at-point= to navigate code without any setup.
+
+This command will:
+- Find project root folder and scan code *automatically*
+- Find correct tag *automatically*
+- If no tag is find, =ripgrep= or =grep= is *automatically* called
+
+Please note it takes time to parse tags file contains long lines. It's the known issue of Emacs Lisp.
+
+You could run =M-x counsel-ctags-scan-code= only once and create tags file [[https://www.emacswiki.org/emacs/BuildTags][in your own way]].
+
+Please read [[#step-by-step-guide][Step by step guide]] for more details.
+
+* Tips (OPTIONAL)
+** Jump back
+Run =M-x pop-tag-mark= to jump back.
+** Native Windows Emacs
+The grep program path on Native Windows Emacs uses either forward slash or backward slash. Like "C:/rg.exe" or "C:\\\\rg.exe".
+
+If grep program path is added to environment variable PATH, you don't need worry about slash problem.
+** ".gitignore" and ".hgignore" are respected
+The variable =counsel-ctags-ignore-config-file= specifies the paths of ignore configuration files (".gitignore", ".hgignore", etc).
+
+The path is either absolute or relative to the tags file.
+
+Set =counsel-ctags-ignore-config-files= to nil to turn off this feature.
+** Set up with [[https://github.com/jwiegley/use-package][use-package]]
+Please place =add-hook= code inside =:init= section,
+#+begin_src elisp
+(use-package counsel-ctags
+  :ensure t
+  :bind (("C-]" . counsel-ctags-find-tag-at-point))
+  :init
+  (add-hook 'prog-mode-hook
+        (lambda ()
+          (add-hook 'after-save-hook
+            'counsel-ctags-virtual-update-tags 'append 'local)))
+  :config
+  (setq counsel-ctags-update-interval 60)
+  (push "build" counsel-ctags-ignore-directories))
+#+end_src
+** Insert extra content into tags file after it's updated
+=counsel-ctags-find-tag-name-function= finds tag name at point. If it returns nil, =find-tag-default= is used. =counsel-ctags-word-at-point= returns the word at point.
+
+User could append the extra content into tags file in =counsel-ctags-after-update-tags-hook=.
+
+The parameter of hook function is full path of the tags file.
+
+=counsel-ctags-tag-line= and =counsel-ctags-append-to-tags-file= are helper functions to update tags file in the hook,
+
+Sample code to append native javascript API "addEventListener", "dispatchEvent", "removeEventListener" into tags file,
+#+begin_src elisp
+(defun my-update-tags-file (tags-file)
+  "Update TAGS-FILE."
+  (when (memq major-mode '(js-mode typescript-mode js2-mode))
+    (let ((s3 (mapconcat (lambda (tagname)
+                           (counsel-ctags-tag-line tagname tagname 0))
+                         '(addEventListener
+                           dispatchEvent
+                           removeEventListener) "")))
+      (counsel-ctags-append-to-tags-file
+       (list (cons "https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/%s" s3))
+       tags-file))))
+(add-hook 'counsel-ctags-after-update-tags-hook 'my-update-tags-file)
+#+end_src
+** Ignore directories and files
+You can set up =counsel-ctags-ignore-directories= and =counsel-ctags-ignore-filenames=,
+#+begin_src elisp
+(with-eval-after-load 'counsel-ctags
+  ;; counsel-ctags-ignore-directories does NOT support wildcast
+  (push "build_clang" counsel-ctags-ignore-directories)
+  (push "build_clang" counsel-ctags-ignore-directories)
+  ;; counsel-ctags-ignore-filenames supports wildcast
+  (push "tags" counsel-ctags-ignore-filenames)
+  (push "*.json" counsel-ctags-ignore-filenames))
+#+end_src
+** Dependency on Emacs APIs is minimum
+I intend to keep this package completely independent.
+
+Many native tag API or variable (=tags-file-name=, =tags-table-list=, =visit-tags-table=, =xref-find-references=, etc) are not used.
+
+** Specify multiple tags files
+=counsel-ctags-extra-tags-files= contains extra tags file to parse.
+
+Sample setup,
+#+begin_src elisp
+(setq counsel-ctags-extra-tags-files '("/usr/include/tags" "/usr/local/include/tags"))
+#+end_src
+
+Files in =counsel-ctags-extra-tags-files= should have symbols with absolute path only.
+** Auto update tags file
+#+begin_src elisp
+;; Don't ask before rereading the tags files if they have changed
+(setq tags-revert-without-query t)
+;; Don't warn when tags files are large
+(setq large-file-warning-threshold nil)
+;; Setup auto update now
+(add-hook 'prog-mode-hook
+  (lambda ()
+    (add-hook 'after-save-hook
+              'counsel-ctags-virtual-update-tags 'append 'local)))
+#+end_src
+You can change callback =counsel-ctags-update-tags-backend= to update tags file using your own solution,
+#+begin_src elisp
+(setq counsel-ctags-update-tags-backend (lambda (src-dir) (shell-command "/usr/bin/ctags -e -R")))
+#+end_src
+** Rust programming language
+Tags file for [[https://www.rust-lang.org/][Rust programming language]] can be generated by [[https://github.com/dan-t/rusty-tags][rusty-tags]].
+
+Run =rusty-tags emacs= in shell to generate tags file. You also need =(setq counsel-ctags-tags-file-name "rusty-tags.emacs")=.
+
+The easiest way to set up rusty-tags per project is to create [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Directory-Variables.html][.dir-locals.el]] in project root,
+#+begin_src elisp
+((nil . ((counsel-ctags-update-tags-backend . (lambda (src-dir) (shell-command "rusty-tags emacs")))
+         (counsel-ctags-tags-file-name . "rusty-tags.emacs"))))
+#+end_src
+** List all tags
+=M-x counsel-ctags-list-tag=
+** Two-step tag matching using regular expression and filter
+=M-x counsel-ctags-find-tag=
+** Force update current tags file
+Run =counsel-ctags-update-tags-force=. Tags file in project root should exist before running this command.
+** Open recent tag
+=M-x counsel-ctags-recent-tag=
+** Search with exclusion patterns
+All commands support exclusion patterns from [[https://github.com/abo-abo/swiper][ivy]].
+
+You can filter the candidates with =keyword1 !keyword2 keyword3=. So only candidate containing =keyword1= but neither =keyword2= nor =keyword3= are displayed.
+
+You can press =C-c C-o= or =M-x ivy-occur= to export candidates to a buffer.
+
+In summary, all functionalities from [[https://github.com/abo-abo/swiper][ivy]] are supported.
+** Grep program
+If [[https://github.com/BurntSushi/ripgrep][ripgrep]] is installed, it's used as faster grep program. Or else we fallback to =grep=.
+
+Use =M-x counsel-ctags-grep= to grep in project root which is automatically detected.  If current file is org file, current node or parent node's property
+=GREP_PROJECT_ROOT= is read to get the root directory to grep.
+
+Set =counsel-ctags-grep-extra-arguments= to add extra arguments for grep.
+
+Use =M-x counsel-ctags-grep-current-directory= to grep current directory.
+
+Use =C-u num M-x counsel-ctags-grep-current-directory= to grep NUM level up of current directory. If NUM is nil or 0, current directory is searched.
+
+Grep result is sorted by string distance of current file path and candidate file path. The sorting is enabled in Emacs 27+.
+
+You can set =counsel-ctags-sort-grep-result-p= to =nil= to disable sorting.
+** Customize grep keyword
+Users could set =counsel-ctags-convert-grep-keyword= to customize grep keyword.
+
+For example, below setup enable =counsel-ctags-grep= to search Chinese using [[https://github.com/cute-jumper/pinyinlib.el][pinyinlib]],
+#+begin_src elisp
+(unless (featurep 'pinyinlib) (require 'pinyinlib))
+(setq counsel-ctags-convert-grep-keyword
+  (lambda (keyword)
+    (if (and keyword (> (length keyword) 0))
+        (pinyinlib-build-regexp-string keyword t)
+      keyword)))
+#+end_src
+
+Or create a new grep command =my-grep-by-pinyin=,
+#+begin_src elisp
+(defun my-grep-by-pinyin ()
+  (interactive)
+  (unless (featurep 'pinyinlib) (require 'pinyinlib))
+  (let* ((counsel-ctags-convert-grep-keyword
+          (lambda (keyword)
+            (if (and keyword (> (length keyword) 0))
+                (pinyinlib-build-regexp-string keyword t)
+              keyword))))
+    (counsel-ctags-grep)))
+#+end_src
+** Windows
+Installing Cygwin and its package Ctags on any driver is all you need to do. No extra setup is required.
+
+But you could still set up =counsel-ctags-find-program=, =counsel-ctags-ctags-program=, and =counsel-ctags-grep-program= to specify the command line program path.
+** Use Ctags to generate Imenu items
+Run =M-x counsel-ctags-list-tag-in-current-file= to list tags in current file.
+
+You can also use native imenu command with below setup,
+#+begin_src elisp
+(setq imenu-create-index-function 'counsel-ctags-imenu-default-create-index-function)
+#+end_src
+
+Set =counsel-ctags-imenu-excluded-names= to exclude imenu items by name.
+
+Set =counsel-ctags-imenu-excluded-types to exclude imenu items by type.
+
+* Step by step guide
+You need use Linux/Cygwin/MSYS2. It should be similar in macOS but I'm not sure whether the directory =/usr/include= exists.
+
+** Step 1, a toy C project
+Run below script in Bash shell to create a toy project.
+#+begin_src bash
+#!/bin/bash
+mkdir -p ~/proj1 && cd ~/proj1
+cat > .dir-locals.el <<EOF
+((nil . ((counsel-ctags-project-root . "$PWD")
+         (counsel-ctags-extra-tags-files . ("./include/tags")))))
+EOF
+cat > hello.c <<EOF
+include <stdio.h>
+
+void fn() {
+}
+
+int main() {
+    printf('hello world');
+    fn();
+    return 0;
+}
+EOF
+mkdir -p include && cd include && find /usr/include | ctags -e -L -
+#+end_src
+
+** Step 2, navigate code
+Open =hello.c= in Emacs (say "YES" if Emacs ask any question), move focus over symbol "fn" or "printf", run =counsel-ctags-find-tag-at-point=.
+* Bug Report
+Report bugs to [[https://github.com/redguardtoo/counsel-ctags]].
